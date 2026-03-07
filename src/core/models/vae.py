@@ -26,6 +26,7 @@ class VAE_model(nn.Module):
             activFun
         )
         self.mu_dec_head      = nn.Linear(H, D)
+        self.log_var_dec_head = nn.Linear(H, D)
 
     def encode(self, x):
         h = self.enc(x)
@@ -33,7 +34,7 @@ class VAE_model(nn.Module):
 
     def decode(self, z):
         h = self.dec(z)
-        return self.mu_dec_head(h)
+        return self.mu_dec_head(h), self.log_var_dec_head(h)
 
     @staticmethod
     def reparametrization_trick(mu, log_var):
@@ -43,13 +44,15 @@ class VAE_model(nn.Module):
     def forward(self, x):
         mu_z, log_var_z = self.encode(x)
         z_rep = self.reparametrization_trick(mu_z, log_var_z)
-        mu_x = self.decode(z_rep)
-        return mu_x, z_rep, mu_z, log_var_z
+        mu_x, log_var_x = self.decode(z_rep)
+        log_var_x = torch.clamp(log_var_x, -6, 6)
+        return mu_x, log_var_x, z_rep, mu_z, log_var_z
 
 
-def VAE_loss(x, mu_x, mu_z, log_var_z, r=1.0):
-    # Recon loss with fixed variance = 1 for simplicity
-    recon_loss = 0.5 * ((x - mu_x)**2).sum(dim=1).mean()
+def VAE_loss(x, mu_x, log_var_x, mu_z, log_var_z, r=1.0):
+    recon_loss = 0.5 * (
+        log_var_x + ((x - mu_x)**2 / log_var_x.exp()) + np.log(2 * np.pi)
+    ).sum(dim=1).mean()
 
     kl_loss = 0.5 * (
         mu_z**2 + log_var_z.exp() - log_var_z - 1

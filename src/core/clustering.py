@@ -7,17 +7,20 @@ import torch
 from core.riemann_distance import riemannian_distance_batch, precompute_M
 
 
-def match_labels(true_labels, pred_labels, n_clusters):
-    cm = confusion_matrix(true_labels, pred_labels, labels=list(range(n_clusters)))
+def match_labels(true_labels, pred_labels):
+    unique = np.unique(true_labels)
+    cm = confusion_matrix(true_labels, pred_labels, labels=unique)
     row_ind, col_ind = linear_sum_assignment(-cm)
-    mapping = {col: row for row, col in zip(row_ind, col_ind)}
+    mapping = {col: unique[row] for row, col in zip(row_ind, col_ind)}
     return np.array([mapping[p] for p in pred_labels])
 
 
 def kmeans_euclidean(Z, true_labels, n_clusters=3):
     kmeans = KMeans(n_clusters=n_clusters, n_init=30)
     pred_labels = kmeans.fit_predict(Z) # uses Euclidean distance by default
-    pred_labels = match_labels(true_labels, pred_labels, n_clusters)
+
+    pred_labels = match_labels(true_labels, pred_labels)
+    
     f1 = f1_score(true_labels, pred_labels, average="macro")
     return f1, pred_labels
 
@@ -32,13 +35,14 @@ def kmeans_riemannian(Z, labels, model, n_clusters=3, n_iter=20):
     Z_tensor = Z.to(next(model.parameters()).device)
     centers = torch.tensor(kmeans.cluster_centers_, dtype=torch.float32, device=Z_tensor.device)
 
+    grid_size=100
     # Precompute the M once for all iterations
     print("Precomputing M...")
-    grid_z, all_G = precompute_M(model, Z_tensor.device)
+    grid_z, all_M = precompute_M(model, Z_tensor.device, grid_size=grid_size)
     print("Done.")
 
     for it in range(n_iter):
-        dists = riemannian_distance_batch(model, Z_tensor, centers, grid_z, all_G) # Approximate Riemannian distance
+        dists = riemannian_distance_batch(model, Z_tensor, centers, grid_z, all_M, grid_size=grid_size) # Approximate Riemannian distance
         assignments = dists.argmin(dim=1).cpu().numpy()
 
         for k in range(n_clusters):
@@ -46,7 +50,7 @@ def kmeans_riemannian(Z, labels, model, n_clusters=3, n_iter=20):
             if idx.sum() > 0:
                 centers[k] = Z_tensor[idx].mean(dim=0)
 
-    assignments = match_labels(labels_np, assignments, n_clusters)
+    assignments = match_labels(labels_np, assignments)
     f1 = f1_score(labels_np, assignments, average="macro")
     return f1, assignments
 
