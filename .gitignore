@@ -1,7 +1,6 @@
 .DS_Store*
 
 src/mnist_data/
-src/saved_models/
 
 __pycache__/
 **/__pycache__/
