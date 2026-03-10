@@ -1,0 +1,6 @@
+.DS_Store*
+
+mnist_data/
+
+__pycache__/
+**/__pycache__/
